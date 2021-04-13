@@ -1,7 +1,8 @@
 /* --------------------------------------------------------------
 Script: crypto-ticker-widget
 Author: Nico Wickersheim
-Version: 1.0.0
+Version: 1.0.1
+updated by u/splatkitten
 
 Description:
 Displays the current course of a cryptoin any fiat currency based on 
@@ -9,13 +10,17 @@ the data of coinbase API.
 
 Changelog:
 
-1.0.0: Initialization
--------------------------------------------------------------- */
 
+1.0.0: Initialization
+1.0.1: added custom bitcoin amount
+-------------------------------------------------------------- */
 let params = null;
 // Parameter takeover from input
+// param 1 = btc type. param 2 = currency. 
+// param 3 = btc amount
 if (args.widgetParameter == null) {
-    params = ["BTC", "USD"]; // Default input without parameters
+    params = ["BTC", "NOK", "1"];
+    // Default input without parameters
 } else {
     params = args.widgetParameter.split(",")
     console.log(params)
@@ -32,7 +37,8 @@ let amount = "";
 if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
     base = res.data.base;
     currency = res.data.currency;
-    amount = res.data.amount;
+    amount = res.data.amount * params[2];
+    coins = params[2];
 } else {
     amount = res.errors[0].message;
 }
@@ -43,9 +49,11 @@ const USDurl = 'https://api.coinbase.com/v2/prices/' + params[0] + '-USD/spot'
 const USDreq = new Request(USDurl)
 const USDres = await USDreq.loadJSON()
 if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
-    USDamount = USDres.data.amount;
+    USDamount = USDres.data.amount * params[2];
     USDamount = parseFloat(USDamount).toFixed(2)
+    console.log(USDamount)
 }
+//amount = 100000000;
 
 // Image fetching
 let img = {};
@@ -56,6 +64,7 @@ if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
 }
 try {
     img = await i.loadImage()
+    console.log(i.response.statusCode)
 } catch (e) {
     // Fetch default independent image
     i = new Request('https://image.flaticon.com/icons/png/512/107/107587.png')
@@ -75,16 +84,14 @@ if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
 let upticker = SFSymbol.named("chevron.up");
 let downticker = SFSymbol.named("chevron.down");
 let latest = "";
-let resLatest = "";
 if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
-    let replaceName = name.replaceAll(" ", "-");
-    const latestUrl = 'https://api.coinpaprika.com/v1/coins/' + base.toLowerCase() + '-' + replaceName.toLowerCase() + '/ohlcv/latest/'
+    const latestUrl = 'https://api.coinpaprika.com/v1/coins/' + base.toLowerCase() + '-' + name.toLowerCase() + '/ohlcv/latest/'
     const latestReq = new Request(latestUrl)
-    resLatest = await latestReq.loadJSON()
-    if (JSON.stringify(resLatest).toLowerCase().includes("errors") == false && JSON.stringify(resLatest) != "[]") {
-        latest = resLatest[0].close;
-        latest = parseFloat(latest).toFixed(2);
-    }
+    const resLatest = await latestReq.loadJSON()
+    latest = resLatest[0].close;
+    latest = parseFloat(latest).toFixed(2);
+    console.log(latest);
+
 }
 
 let widget = createWidget(base, amount, currency, img, name, rank)
@@ -97,7 +104,7 @@ else {
     widget.presentSmall()
 }
 
-function createWidget(base, amount, currency, img, name, rank) {
+function createWidget(base, amount, currency, img, name, rank, coins) {
     let w = new ListWidget()
     w.backgroundColor = new Color("#1A1A1A")
 
@@ -116,20 +123,54 @@ function createWidget(base, amount, currency, img, name, rank) {
     imageTextStack.addSpacer(0);
 
     // Symbol of crypto token
-    let baseStack = imageTextStack.addStack()
-    baseStack.layoutHorizontally();
-
-    let baseText = baseStack.addText(base)
+    let baseText = imageTextStack.addText(base)
     baseText.textColor = Color.white()
-    baseText.font = Font.systemFont(18)
+    baseText.font = Font.systemFont(20)
 
-    let tickerStack = baseStack.addStack();
-    tickerStack.layoutHorizontally();
+    // Rank of crypto token
+    let rankText = "";
+    if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
+        rankText = imageTextStack.addText("Rank: " + rank)
+    }
+    rankText.textColor = Color.white()
+    rankText.font = Font.systemFont(11)
 
-    // Stack for ticker image: if course yesterday is lower than today show red ticker
-    // if course yesterday
-    if (JSON.stringify(resLatest).toLowerCase().includes("errors") == false && JSON.stringify(resLatest) != "[]" &&
-        JSON.stringify(res).toLowerCase().includes("errors") == false) {
+    w.addSpacer(8)
+
+    // Full name of crypto token
+    let staticText = w.addText(params[2] + " " + name)
+    staticText.textColor = Color.white()
+    staticText.font = Font.systemFont(13)
+    staticText.centerAlignText()
+
+    w.addSpacer(8)
+
+    let amountStack = w.addStack();
+    amountStack.layoutHorizontally();
+    amountStack.centerAlignContent();
+    amountStack.addSpacer(20);
+
+    // Round amount to 2 decimal positions
+    let amountTxt = "";
+    if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
+        // Cut numbers over 10 Million and show just with ending 'M'
+        if (parseFloat(amount) >= 10000000) {
+            amount = (parseFloat(amount) / 1000000).toFixed(2).replace(/\.0$/, '');
+            amount += "M";
+            console.log(amount)
+        } else {
+            amount = parseFloat(amount).toFixed(2);
+      }
+        amountTxt = amountStack.addText(amount + ' ' + currency )
+
+        let tickerStack = amountStack.addStack();
+        tickerStack.layoutHorizontally();
+        amountStack.centerAlignContent();
+        tickerStack.addSpacer(5);
+
+        // Stack for ticker image: if course yesterday is lower than today show green ticker
+        // if course yesterday is greater than today show red ticker
+        // Comapare is executed in USD!
         let ticker = null;
         if (USDamount < latest) {
             ticker = tickerStack.addImage(downticker.image);
@@ -140,46 +181,15 @@ function createWidget(base, amount, currency, img, name, rank) {
         }
 
         ticker.imageSize = new Size(12, 12)
-    }
-
-    // Rank of crypto token
-    let rankText = "";
-    if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
-        rankText = imageTextStack.addText("Rank: " + rank)
-    }
-    rankText.textColor = Color.white()
-    rankText.font = Font.systemFont(12)
-
-    w.addSpacer(8)
-
-    // Full name of crypto token
-    let staticText = w.addText(name)
-    staticText.textColor = Color.white()
-    staticText.font = Font.systemFont(13)
-    staticText.centerAlignText()
-
-    w.addSpacer(8)
-
-    // Round amount to 2 decimal positions
-    let amountTxt = "";
-    if (JSON.stringify(res).toLowerCase().includes("errors") == false) {
-        // Cut numbers over 10 Million and show just with ending 'M'
-        if (parseFloat(amount) >= 10000000) {
-            amount = (parseFloat(amount) / 1000000).toFixed(2).replace(/\.0$/, '');
-            amount += "M";
-        } else {
-            amount = parseFloat(amount).toFixed(2);
-        }
-        amountTxt = w.addText(amount + ' ' + currency)
 
         amountTxt.textColor = Color.orange()
-
     } else {
         amountTxt = w.addText(amount); // Write error message in case as amount
         amountTxt.textColor = Color.red()
     }
-    amountTxt.centerAlignText()
+
     amountTxt.font = Font.systemFont(16)
+    amountTxt.centerAlignText()
 
     w.addSpacer(8)
 
